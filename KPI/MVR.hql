@@ -9,7 +9,6 @@ on (to_date(psd.visit_end_date) = dd.iso_date)
 where event_type in ('COV','IMV','PSSV','SIV','SMC')
 and report_completion_date is NULL
    ) k
-   --  on (k.d_date_id = a.d_date_id)
  join (select d.d_date_id as today_id from sbi_star.d_date d where iso_date = CURRENT_DATE()) aa
 join sbi_star.sbi_processed_date lpd  
 
@@ -17,3 +16,50 @@ where a.d_date_id between  k.d_date_id and aa.today_id
 and a.day_of_week_short_desc not in ('SAT','SUN')
 group by project_id,event_type, visit_id,lpd.last_process_date;
 
+
+-- MVR outstanding
+drop table if exists sbi_raw.mvrs_outstanding;
+create table if not exists sbi_raw.mvrs_outstanding as
+select  project_id, event_type,count(visit_id) as mvrs_outstanding from
+sbi_presentation.pd_site_detail
+where event_type in ('COV','IMV','PSSV','SIV','SMC')
+and visit_end_date is not NULL
+and report_completion_date is null
+group by project_id, event_type;
+
+-- MVR overdue
+drop table if exists sbi_raw.mvrs_overdue;
+create table if not exists sbi_raw.mvrs_overdue as
+select outs.project_id,outs.event_type, count(outs.mvrs_outstanding) as mvrs_overdue
+from sbi_raw.mvrs_outstanding outs
+left join 
+sbi_raw.mvr_aging age
+on (outs.project_id = age.project_id and outs.event_type = age.event_type)
+where outs.event_type in ('COV','IMV','PSSV','SIV')
+and age.mvr_aging > 10
+group by outs.project_id,outs.event_type
+union all
+select outs.project_id,outs.event_type, count(outs.mvrs_outstanding) as mvrs_overdue
+from sbi_raw.mvrs_outstanding outs
+left join 
+sbi_raw.mvr_aging age
+on (outs.project_id = age.project_id and outs.event_type = age.event_type)
+where outs.event_type in ('SMC')
+and age.mvr_aging > 7
+group by outs.project_id,outs.event_type;
+
+
+
+drop table if exists sbi_raw.mvr_aging_kpi;
+create table sbi_raw.mvr_aging_kpi as
+select 
+a.PROJECT_ID,
+CASE WHEN mvrs_overdue = 0 then 'GREEN'
+WHEN mvrs_overdue > 0 and max(mvr_aging) <= 19 and (mvrs_overdue/mvrs_outstanding)*100 < 25 then 'AMBER'
+WHEN max(mvr_aging) > 19 OR (mvrs_overdue/mvrs_outstanding)*100 >= 25 THEN 'RED'
+END AS kpi_rag,
+lpd.last_process_date as last_processed_date
+from sbi_raw.mvr_aging a,sbi_raw.mvrs_outstanding b, sbi_raw.mvrs_overdue c, sbi_star.sbi_processed_date lpd
+where a.project_id = b.project_id and a.event_type = b.event_type
+and a.project_id = c.project_id and a.event_type = c.event_type
+group by a.PROJECT_ID, mvrs_overdue,mvrs_outstanding,lpd.last_process_date;
