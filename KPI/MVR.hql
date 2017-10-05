@@ -49,7 +49,6 @@ and age.mvr_aging > 7
 group by outs.project_id,outs.event_type;
 
 
-
 drop table if exists sbi_raw.mvr_aging_kpi;
 create table sbi_raw.mvr_aging_kpi as
 select 
@@ -58,8 +57,12 @@ CASE WHEN mvrs_overdue = 0 then 'GREEN'
 WHEN mvrs_overdue > 0 and max(mvr_aging) <= 19 and (mvrs_overdue/mvrs_outstanding)*100 < 25 then 'AMBER'
 WHEN max(mvr_aging) > 19 OR (mvrs_overdue/mvrs_outstanding)*100 >= 25 THEN 'RED'
 END AS kpi_rag,
+NULL as value,
 lpd.last_process_date as last_processed_date
 from sbi_raw.mvr_aging a,sbi_raw.mvrs_outstanding b, sbi_raw.mvrs_overdue c, sbi_star.sbi_processed_date lpd
 where a.project_id = b.project_id and a.event_type = b.event_type
 and a.project_id = c.project_id and a.event_type = c.event_type
 group by a.PROJECT_ID, mvrs_overdue,mvrs_outstanding,lpd.last_process_date;
+
+
+
